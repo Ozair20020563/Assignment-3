@@ -34,10 +34,17 @@ class ImageAlteration(ABC):
 class ColorShiftAlteration(ImageAlteration):
     def apply(self, image: np.ndarray, region: Tuple[int, int, int, int]) -> np.ndarray:
         x, y, w, h = region
-        roi = image[y:y+h, x:x+w]
-        hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
-        hue_shift = random.randint(-30, 30)
+        roi = image[y:y+h, x:x+w].copy()
+        
+        # Convert to HSV for color manipulation
+        hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV).astype(np.int16)
+        
+        # Random hue shift between -20 and +20 degrees (reduced to prevent overflow)
+        hue_shift = random.randint(-20, 20)
         hsv[:, :, 0] = (hsv[:, :, 0] + hue_shift) % 180
+        
+        # Clip values to valid range and convert back
+        hsv = np.clip(hsv, 0, 255).astype(np.uint8)
         roi_altered = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
         image[y:y+h, x:x+w] = roi_altered
         return image
@@ -49,7 +56,9 @@ class BlurAlteration(ImageAlteration):
     def apply(self, image: np.ndarray, region: Tuple[int, int, int, int]) -> np.ndarray:
         x, y, w, h = region
         roi = image[y:y+h, x:x+w]
-        kernel_size = random.choice([3, 5, 7])
+        
+        # Use smaller kernel sizes for better compatibility
+        kernel_size = random.choice([3, 5])
         roi_altered = cv2.GaussianBlur(roi, (kernel_size, kernel_size), 0)
         image[y:y+h, x:x+w] = roi_altered
         return image
@@ -61,14 +70,34 @@ class PixelateAlteration(ImageAlteration):
     def apply(self, image: np.ndarray, region: Tuple[int, int, int, int]) -> np.ndarray:
         x, y, w, h = region
         roi = image[y:y+h, x:x+w]
-        pixel_size = random.choice([4, 8, 12])
-        small = cv2.resize(roi, (max(1, w // pixel_size), max(1, h // pixel_size)))
+        
+        # Ensure dimensions are valid
+        pixel_size = random.choice([4, 6, 8])
+        small_w = max(1, w // pixel_size)
+        small_h = max(1, h // pixel_size)
+        
+        small = cv2.resize(roi, (small_w, small_h), interpolation=cv2.INTER_LINEAR)
         roi_altered = cv2.resize(small, (w, h), interpolation=cv2.INTER_NEAREST)
         image[y:y+h, x:x+w] = roi_altered
         return image
     
     def get_name(self) -> str:
         return "Pixelate"
+
+class ContrastAlteration(ImageAlteration):
+    """New alteration type - safer than color shift for all images"""
+    def apply(self, image: np.ndarray, region: Tuple[int, int, int, int]) -> np.ndarray:
+        x, y, w, h = region
+        roi = image[y:y+h, x:x+w].astype(np.float32)
+        
+        # Adjust contrast safely
+        alpha = random.uniform(0.7, 1.3)  # Contrast
+        roi_altered = np.clip(roi * alpha, 0, 255).astype(np.uint8)
+        image[y:y+h, x:x+w] = roi_altered
+        return image
+    
+    def get_name(self) -> str:
+        return "Contrast Change"
 
 class SpotTheDifferenceGame:
     def __init__(self, root: tk.Tk):
@@ -79,18 +108,22 @@ class SpotTheDifferenceGame:
         
         self.original_image = None
         self.modified_image = None
+        self.original_display = None
+        self.modified_display = None
         self.difference_regions = []
         self.mistakes = 0
         self.max_mistakes = 3
         self.total_found = 0
+        self.current_image_path = None
         self.game_active = True
         self.display_width = 500
         self.display_height = 400
         
+        # Updated alteration types - more stable
         self.alteration_types = [
-            ColorShiftAlteration(),
             BlurAlteration(),
-            PixelateAlteration()
+            PixelateAlteration(),
+            ContrastAlteration()
         ]
         
         self.setup_ui()
@@ -172,33 +205,51 @@ class SpotTheDifferenceGame:
             return
         
         try:
+            # Load image
             self.original_image = cv2.imread(file_path)
             if self.original_image is None:
                 raise ValueError("Could not load image")
             
+            self.current_image_path = file_path
+            
+            # Create modified version
             self.create_modified_image()
+            
+            # Reset game state
             self.reset_game_state()
+            
+            # Display images
             self.display_images()
+            
+            # Enable buttons
             self.reveal_btn.config(state=tk.NORMAL)
+            self.game_active = True
+            
             self.status_label.config(text=f"Loaded: {os.path.basename(file_path)} - Find 5 differences!")
             
         except Exception as e:
             messagebox.showerror("Error", f"Failed to load image: {str(e)}")
+            print(f"Detailed error: {e}")  # For debugging
     
     def create_modified_image(self):
+        """Create a modified copy with 5 non-overlapping differences"""
         self.modified_image = self.original_image.copy()
         height, width = self.original_image.shape[:2]
         
-        region_width = max(30, int(width * random.uniform(0.08, 0.12)))
-        region_height = max(30, int(height * random.uniform(0.08, 0.12)))
+        # Adjust region size based on image dimensions
+        region_width = max(40, min(int(width * 0.1), 100))
+        region_height = max(40, min(int(height * 0.1), 100))
         
         self.difference_regions = []
         attempts = 0
+        max_attempts = 100
         
-        while len(self.difference_regions) < 5 and attempts < 50:
+        while len(self.difference_regions) < 5 and attempts < max_attempts:
+            # Ensure region fits within image
             x = random.randint(0, max(1, width - region_width))
             y = random.randint(0, max(1, height - region_height))
             
+            # Check for overlap
             overlap = False
             for region in self.difference_regions:
                 if (abs(x - region.x) < region_width and 
@@ -207,13 +258,48 @@ class SpotTheDifferenceGame:
                     break
             
             if not overlap:
+                # Pick random alteration type
                 alteration = random.choice(self.alteration_types)
-                self.modified_image = alteration.apply(self.modified_image, (x, y, region_width, region_height))
-                self.difference_regions.append(
-                    DifferenceRegion(x, y, region_width, region_height, alteration.get_name())
-                )
+                
+                try:
+                    # Apply alteration safely
+                    self.modified_image = alteration.apply(self.modified_image, (x, y, region_width, region_height))
+                    self.difference_regions.append(
+                        DifferenceRegion(x, y, region_width, region_height, alteration.get_name())
+                    )
+                except Exception as e:
+                    print(f"Alteration failed: {e}")
             
             attempts += 1
+        
+        # If we couldn't create 5 differences, add simple ones
+        if len(self.difference_regions) < 5:
+            self.add_simple_differences()
+    
+    def add_simple_differences(self):
+        """Add simple brightness differences as fallback"""
+        height, width = self.original_image.shape[:2]
+        region_size = 50
+        
+        while len(self.difference_regions) < 5:
+            x = random.randint(0, max(1, width - region_size))
+            y = random.randint(0, max(1, height - region_size))
+            
+            overlap = False
+            for region in self.difference_regions:
+                if (abs(x - region.x) < region_size and 
+                    abs(y - region.y) < region_size):
+                    overlap = True
+                    break
+            
+            if not overlap:
+                # Simple brightness change
+                roi = self.modified_image[y:y+region_size, x:x+region_size]
+                brighter = np.clip(roi.astype(np.float32) * 1.2, 0, 255).astype(np.uint8)
+                self.modified_image[y:y+region_size, x:x+region_size] = brighter
+                self.difference_regions.append(
+                    DifferenceRegion(x, y, region_size, region_size, "Brightness")
+                )
     
     def reset_game_state(self):
         for region in self.difference_regions:
@@ -222,13 +308,19 @@ class SpotTheDifferenceGame:
         self.total_found = 0
         self.game_active = True
         self.update_score_display()
+        
+        # Clear circles from canvases
+        self.original_canvas.delete("circle")
+        self.modified_canvas.delete("circle")
     
     def display_images(self):
+        # Display original image
         self.original_display = self.resize_image(self.original_image, self.display_width, self.display_height)
         self.original_canvas.delete("all")
         self.original_canvas.create_image(self.display_width // 2, self.display_height // 2,
                                           anchor=tk.CENTER, image=self.original_display)
         
+        # Display modified image
         self.modified_display = self.resize_image(self.modified_image, self.display_width, self.display_height)
         self.modified_canvas.delete("all")
         self.modified_canvas.create_image(self.display_width // 2, self.display_height // 2,
@@ -253,6 +345,7 @@ class SpotTheDifferenceGame:
         if not self.game_active or self.modified_image is None:
             return
         
+        # Get click coordinates in image space
         img_height, img_width = self.modified_image.shape[:2]
         scale_w = self.display_width / img_width
         scale_h = self.display_height / img_height
@@ -267,9 +360,11 @@ class SpotTheDifferenceGame:
         img_x = int((event.x - offset_x) / scale)
         img_y = int((event.y - offset_y) / scale)
         
+        # Check if click is within image bounds
         if img_x < 0 or img_y < 0 or img_x >= img_width or img_y >= img_height:
             return
         
+        # Check each unfound difference
         found_region = None
         for region in self.difference_regions:
             if not region.found and region.contains_point(img_x, img_y):
@@ -277,6 +372,7 @@ class SpotTheDifferenceGame:
                 break
         
         if found_region:
+            # Correct guess
             found_region.found = True
             self.total_found += 1
             self.draw_circle_on_both(found_region, "red")
@@ -286,7 +382,9 @@ class SpotTheDifferenceGame:
             if self.total_found == 5:
                 self.game_active = False
                 messagebox.showinfo("Congratulations!", f"You found all 5 differences!\nMistakes: {self.mistakes}")
+                self.status_label.config(text="Perfect! Load another image to continue!")
         else:
+            # Wrong guess
             if self.mistakes < self.max_mistakes:
                 self.mistakes += 1
                 self.update_score_display()
@@ -294,7 +392,8 @@ class SpotTheDifferenceGame:
                 
                 if self.mistakes >= self.max_mistakes:
                     self.game_active = False
-                    messagebox.showwarning("Game Over", f"3 mistakes! Found {self.total_found}/5 differences.")
+                    messagebox.showwarning("Game Over", f"You made 3 mistakes!\nFound {self.total_found}/5 differences.\nLoad a new image to try again.")
+                    self.status_label.config(text="Game Over! Load a new image.")
     
     def draw_circle_on_both(self, region, color):
         img_height, img_width = self.original_image.shape[:2]
@@ -318,10 +417,10 @@ class SpotTheDifferenceGame:
         
         self.original_canvas.create_oval(canvas_x - radius, canvas_y - radius,
                                          canvas_x + radius, canvas_y + radius,
-                                         outline=color, width=3)
+                                         outline=color, width=3, tags="circle")
         self.modified_canvas.create_oval(canvas_x - radius, canvas_y - radius,
                                          canvas_x + radius, canvas_y + radius,
-                                         outline=color, width=3)
+                                         outline=color, width=3, tags="circle")
     
     def reveal_differences(self):
         if self.modified_image is None:
@@ -335,8 +434,10 @@ class SpotTheDifferenceGame:
         
         if revealed_count > 0:
             self.game_active = False
-            self.status_label.config(text=f"Revealed {revealed_count} differences!")
+            self.status_label.config(text=f"Revealed {revealed_count} differences! Load a new image.")
             self.reveal_btn.config(state=tk.DISABLED)
+        else:
+            self.status_label.config(text="All differences already found!")
     
     def update_score_display(self):
         self.found_label.config(text=f"Found: {self.total_found}/5")
