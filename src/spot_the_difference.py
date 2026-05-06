@@ -1,3 +1,19 @@
+"""
+╔═══════════════════════════════════════════════════════════════════════════════╗
+║                    SPOT THE DIFFERENCE GAME - ASSIGNMENT 3                     ║
+║                                    HITI 37                                    ║
+╠═══════════════════════════════════════════════════════════════════════════════╣
+║                              GROUP MEMBERS                                    ║
+╠═══════════════════════════════════════════════════════════════════════════════╣
+║  1. Ozair Khalid           ID: 401294      GitHub: Ozair20020563              ║
+║  2. Md Naimur Islam        ID: S397051     GitHub: Durjoy09                   ║
+║  3. Jiaxuan Mai            ID: S397307     GitHub: Chloe-03011                ║
+╠═══════════════════════════════════════════════════════════════════════════════╣
+║ Date: May 2026                                                                 ║
+║                           ║
+╚═══════════════════════════════════════════════════════════════════════════════╝
+"""
+
 import tkinter as tk
 from tkinter import filedialog, messagebox
 from PIL import Image, ImageTk
@@ -8,6 +24,8 @@ import os
 from dataclasses import dataclass
 from typing import List, Tuple
 from abc import ABC, abstractmethod
+
+# ... rest of your code continues
 
 @dataclass
 class DifferenceRegion:
