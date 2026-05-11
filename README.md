@@ -17,4 +17,3 @@
 | Ozair Khalid | Core game logic, OOP structure, image processing, GitHub management |
 | Md Naimur Islam | GUI design, Tkinter implementation, UI/UX |
 | Jiaxuan Mai | Difference algorithms, OpenCV integration, image alterations |
-| Abdullah Al Mumsad | Testing, debugging, documentation, quality assurance |
