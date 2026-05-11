@@ -8,9 +8,10 @@
 ║  1. Ozair Khalid           ID: S401294      GitHub: Ozair20020563              ║
 ║  2. Md Naimur Islam        ID: S397051     GitHub: Durjoy09                   ║
 ║  3. Jiaxuan Mai            ID: S397307     GitHub: Chloe-03011                ║
+║  4. Abdullah Al Mumsad     ID: S394950     GitHub: abdullahalmumsad-code      ║
 ╠═══════════════════════════════════════════════════════════════════════════════╣
 ║ Date: May 2026                                                                 ║
-║                           ║
+║ Course: HITI 37 - Image Processing & GUI Development                          ║
 ╚═══════════════════════════════════════════════════════════════════════════════╝
 """
 
